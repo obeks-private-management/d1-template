@@ -1,0 +1,13 @@
+name = "ai-agent-platform"
+main = "src/index.js"
+compatibility_date = "2024-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "ai_agent_db"
+database_id = "YOUR_DATABASE_ID_HERE"
+
+[vars]
+JWT_SECRET = "your-jwt-secret-change-this"
+WORKER_URL = "ai-agent-platform.YOUR_SUBDOMAIN.workers.dev"

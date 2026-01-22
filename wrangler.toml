@@ -6,7 +6,7 @@ compatibility_flags = ["nodejs_compat"]
 [[d1_databases]]
 binding = "DB"
 database_name = "ai_agent_db"
-database_id = "YOUR_DATABASE_ID_HERE"
+database_id = "884f3696-6e16-4e78-b5f7-d2434addf4d0"
 
 [vars]
 JWT_SECRET = "your-jwt-secret-change-this"

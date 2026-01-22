@@ -1,27 +1,138 @@
-import { DatabaseService } from '../database/queries.js';
+import bcrypt from 'bcryptjs';
+import { DatabaseService } from '../database/db.js';
 
-// JWT secret - use environment variable
-const JWT_SECRET = 'your-jwt-secret-change-this'; // Should be in env.JWT_SECRET
-
-export async function requireAuth(request) {
-  const authHeader = request.headers.get('Authorization');
-  
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return new Response(JSON.stringify({ error: 'Authentication required' }), {
-      status: 401,
+export async function handleSignup(request, env) {
+  try {
+    const { email, password, confirm_password, business_name, country_code, whatsapp_number } = await request.json();
+    
+    // Validation
+    if (password !== confirm_password) {
+      return new Response(JSON.stringify({ error: 'Passwords do not match' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+    
+    if (!whatsapp_number || !/^\d+$/.test(whatsapp_number)) {
+      return new Response(JSON.stringify({ error: 'WhatsApp number must contain only digits' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+    
+    const db = new DatabaseService(env.DB);
+    
+    // Check if user exists
+    const existingUser = await db.getUserByEmail(email);
+    if (existingUser) {
+      return new Response(JSON.stringify({ error: 'Email already registered' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+    
+    // Hash password
+    const passwordHash = await bcrypt.hash(password, 10);
+    
+    // Create user
+    const user = await db.createUser(email, passwordHash, business_name, country_code, whatsapp_number);
+    
+    // Generate simple token (in production, use JWT)
+    const token = user.id;
+    
+    return new Response(JSON.stringify({
+      success: true,
+      message: 'Account created successfully',
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        business_name: user.business_name
+      }
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    });
+    
+  } catch (error) {
+    return new Response(JSON.stringify({ error: error.message || 'Signup failed' }), {
+      status: 500,
       headers: { 'Content-Type': 'application/json' }
     });
   }
+}
 
-  const token = authHeader.substring(7);
-  
+export async function handleLogin(request, env) {
   try {
-    // Simple token verification (in production, use JWT)
-    // For now, we'll assume token is user ID
-    const userId = token; // In production, decode JWT
+    const { email, password } = await request.json();
     
-    const db = new DatabaseService(request.env.DB);
-    const user = await db.getUserById(userId);
+    if (!email || !password) {
+      return new Response(JSON.stringify({ error: 'Email and password are required' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+    
+    const db = new DatabaseService(env.DB);
+    const user = await db.getUserByEmail(email);
+    
+    if (!user) {
+      return new Response(JSON.stringify({ error: 'Invalid email or password' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+    
+    // Verify password
+    const validPassword = await bcrypt.compare(password, user.password_hash);
+    if (!validPassword) {
+      return new Response(JSON.stringify({ error: 'Invalid email or password' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+    
+    // Generate token
+    const token = user.id; // Simple token for now
+    
+    return new Response(JSON.stringify({
+      success: true,
+      message: 'Login successful',
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        business_name: user.business_name
+      }
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    });
+    
+  } catch (error) {
+    return new Response(JSON.stringify({ error: error.message || 'Login failed' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+}
+
+export async function handleDashboard(request, env) {
+  try {
+    const authHeader = request.headers.get('Authorization');
+    
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return new Response(JSON.stringify({ error: 'Authentication required' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+    
+    const token = authHeader.substring(7);
+    const db = new DatabaseService(env.DB);
+    
+    // Get user from token (simple implementation)
+    const user = await db.getUserById(token);
     
     if (!user) {
       return new Response(JSON.stringify({ error: 'Invalid token' }), {
@@ -30,133 +141,42 @@ export async function requireAuth(request) {
       });
     }
     
-    // Add user to request object for handlers to use
-    request.user = user;
-    return null; // No error, continue
+    // Get user's AI agents
+    const userAI = await db.getUserAI(user.id);
+    
+    // Get user databases count
+    const userDatabases = await db.getUserDatabases(user.id);
+    
+    // Get chat history count (last 24 hours)
+    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const chatHistory = await db.getChatHistory(user.id, null, null, 100);
+    const todayChats = chatHistory.filter(chat => 
+      new Date(chat.created_at) > new Date(twentyFourHoursAgo)
+    );
+    
+    return new Response(JSON.stringify({
+      success: true,
+      dashboard: {
+        user: {
+          id: user.id,
+          email: user.email,
+          business_name: user.business_name
+        },
+        statistics: {
+          database_count: userDatabases.length,
+          chat_count: todayChats.length,
+          active_ai_count: userAI.length
+        }
+      }
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    });
     
   } catch (error) {
-    return new Response(JSON.stringify({ error: 'Authentication failed' }), {
-      status: 401,
+    return new Response(JSON.stringify({ error: error.message || 'Failed to load dashboard' }), {
+      status: 500,
       headers: { 'Content-Type': 'application/json' }
     });
   }
-}
-
-export async function requirePartnerAuth(request) {
-  const authHeader = request.headers.get('Authorization');
-  
-  if (!authHeader || !authHeader.startsWith('Partner ')) {
-    return new Response(JSON.stringify({ error: 'Partner authentication required' }), {
-      status: 401,
-      headers: { 'Content-Type': 'application/json' }
-    });
-  }
-
-  const token = authHeader.substring(8);
-  
-  try {
-    const db = new DatabaseService(request.env.DB);
-    const partner = await db.getPartnerById(token); // You'll need to add this method
-    
-    if (!partner) {
-      return new Response(JSON.stringify({ error: 'Invalid partner token' }), {
-        status: 401,
-        headers: { 'Content-Type': 'application/json' }
-      });
-    }
-    
-    request.partner = partner;
-    return null;
-    
-  } catch (error) {
-    return new Response(JSON.stringify({ error: 'Partner authentication failed' }), {
-      status: 401,
-      headers: { 'Content-Type': 'application/json' }
-    });
-  }
-}
-
-// Rate limiting middleware
-export async function rateLimit(request, env) {
-  const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
-  const path = new URL(request.url).pathname;
-  const key = `rate_limit:${ip}:${path}`;
-  
-  // Use D1 for rate limiting
-  const db = new DatabaseService(env.DB);
-  
-  try {
-    // Create rate_limits table if it doesn't exist
-    await env.DB.prepare(`
-      CREATE TABLE IF NOT EXISTS rate_limits (
-        key TEXT PRIMARY KEY,
-        count INTEGER DEFAULT 1,
-        expires_at DATETIME
-      )
-    `).run();
-    
-    // Check existing count
-    const existing = await env.DB.prepare(`
-      SELECT count, expires_at FROM rate_limits 
-      WHERE key = ? AND expires_at > datetime('now')
-    `).bind(key).first();
-    
-    if (existing && existing.count >= 100) { // 100 requests per window
-      return new Response(JSON.stringify({ error: 'Rate limit exceeded' }), {
-        status: 429,
-        headers: { 'Content-Type': 'application/json' }
-      });
-    }
-    
-    // Update or insert rate limit
-    if (existing) {
-      await env.DB.prepare(`
-        UPDATE rate_limits 
-        SET count = count + 1 
-        WHERE key = ?
-      `).bind(key).run();
-    } else {
-      const expiresAt = new Date(Date.now() + 60 * 1000).toISOString(); // 1 minute window
-      await env.DB.prepare(`
-        INSERT INTO rate_limits (key, count, expires_at)
-        VALUES (?, 1, ?)
-      `).bind(key, expiresAt).run();
-    }
-    
-    // Clean up old rate limits
-    await env.DB.prepare(`
-      DELETE FROM rate_limits 
-      WHERE expires_at <= datetime('now')
-    `).run();
-    
-    return null; // No error, continue
-    
-  } catch (error) {
-    console.error('Rate limiting error:', error);
-    return null; // Don't block on rate limit errors
-  }
-}
-
-// Session management (simplified)
-export function createSession(user) {
-  // In production, use JWT
-  return {
-    token: user.id, // Simple token - user ID
-    user: {
-      id: user.id,
-      email: user.email,
-      business_name: user.business_name
-    }
-  };
-}
-
-export function createPartnerSession(partner) {
-  return {
-    token: partner.id,
-    partner: {
-      id: partner.id,
-      name: partner.name,
-      email: partner.email
-    }
-  };
 }

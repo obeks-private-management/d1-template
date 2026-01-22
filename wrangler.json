@@ -1,16 +1,16 @@
-{
-	"compatibility_date": "2025-10-08",
-	"main": "src/index.ts",
-	"name": "d1-template",
-	"upload_source_maps": true,
-	"d1_databases": [
-		{
-			"binding": "DB",
-			"database_id": "884f3696-6e16-4e78-b5f7-d2434addf4d0",
-			"database_name": "d1-template-database"
-		}
-	],
-	"observability": {
-		"enabled": true
-	}
-}
+name = "ai-agent-platform"
+main = "src/index.js"
+compatibility_date = "2026-01-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "d1-template-database"
+database_id = "884f3696-6e16-4e78-b5f7-d2434addf4d0"
+
+[vars]
+JWT_SECRET = "your-jwt-secret-change-this"
+OPENROUTER_API_KEY = "${OPENROUTER_API_KEY}"
+WORKER_URL = "https://d1-template.gabrielogbeks.workers.dev/"
+
+[[mounts]]
+directory = "./public"
